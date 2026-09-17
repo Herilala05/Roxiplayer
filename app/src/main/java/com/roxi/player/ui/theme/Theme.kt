@@ -77,6 +77,7 @@ val LocalRoxiPalette = staticCompositionLocalOf { roxiPalette(AccentColor.VIOLET
 
 /** Raccourcis vers les couleurs du thème actuel. */
 object Roxi {
+    val accents: List<AccentColor> = AccentColor.entries.toList()
     val Bg: Color
         @Composable @ReadOnlyComposable get() = LocalRoxiPalette.current.bg
     val Surface: Color
@@ -97,6 +98,14 @@ object Roxi {
         @Composable @ReadOnlyComposable get() = LocalRoxiPalette.current.textSub
     val IsDark: Boolean
         @Composable @ReadOnlyComposable get() = LocalRoxiPalette.current.dark
+    val isDark: Boolean
+        @Composable @ReadOnlyComposable get() = IsDark
+    val AccentOnDark: Color
+        @Composable @ReadOnlyComposable get() = LocalRoxiPalette.current.accentSoft
+    val OnAccentOnDark: Color
+        @Composable @ReadOnlyComposable get() = Color(0xFF1B1530)
+    val OnAccentSoft: Color
+        @Composable @ReadOnlyComposable get() = Color(0xFF1B1530)
 
     /** Fond de l'écran de démarrage (toujours sombre). */
     val SplashBg = Color(0xFF0E0D14)

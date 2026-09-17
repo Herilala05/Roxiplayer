@@ -1,25 +1,29 @@
-name: Construire l'APK
+name: Construire RoxiPlayer APK
+
 on:
   push:
+    branches: [main]
   workflow_dispatch:
+
 jobs:
   build:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - name: Décompresser le projet
-        run: unzip -o RoxiPlayer.zip
       - uses: actions/setup-java@v4
         with:
           distribution: temurin
           java-version: 17
       - uses: android-actions/setup-android@v3
-      - name: Compiler
-        working-directory: RoxiPlayer
+      - uses: gradle/actions/setup-gradle@v4
+      - name: Extraire le projet
         run: |
-          chmod +x gradlew
-          ./gradlew assembleDebug --stacktrace
+          unzip -q RoxiPlayer.zip -d source
+          chmod +x source/RoxiPlayer/gradlew
+      - name: Compiler l'APK
+        working-directory: source/RoxiPlayer
+        run: ./gradlew assembleDebug --stacktrace
       - uses: actions/upload-artifact@v4
         with:
-          name: RoxiPlayer-apk
-          path: RoxiPlayer/app/build/outputs/apk/debug/app-debug.apk
+          name: RoxiPlayer-1.3.2-apk
+          path: source/RoxiPlayer/app/build/outputs/apk/debug/app-debug.apk

@@ -9,5 +9,6 @@ data class VideoItem(
     val durationMs: Long,
     val size: Long,
     val dateAdded: Long,
+    val folder: String = "Vidéos",
     val secret: Boolean = false,
 )

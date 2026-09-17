@@ -1,12 +1,12 @@
-# Roxi Player — version 1.3.2
+# Roxi Player — version 1.3.3
 
 Lecteur de musique et vidéo Android (Kotlin + Jetpack Compose + Media3).
 
-La version 1.3.2 ajoute les vidéos de la mémoire interne et des cartes SD, les
-liens directs MP4/HLS/DASH, l'image dans l'image et un dossier secret protégé
-par code PIN. La copie importée est placée dans l'espace privé de l'application
-et n'est pas visible dans la galerie. Le fichier original reste à son emplacement
-tant que l'utilisateur ne le supprime pas.
+La version 1.3.3 apporte un nouvel accueil moderne inspiré de Lark Player tout
+en gardant l'identité de Roxi. Elle améliore aussi la section Vidéos avec une
+navigation inspirée de Files by Google : miniatures, dossiers, recherche, tri
+et affichage en grille ou en liste. Les liens directs MP4/HLS/DASH, l'image dans
+l'image et le dossier secret protégé par code PIN restent disponibles.
 
 ## Compiler l'APK
 

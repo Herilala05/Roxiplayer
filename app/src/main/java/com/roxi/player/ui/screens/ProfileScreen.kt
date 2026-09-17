@@ -104,9 +104,9 @@ fun ProfileScreen(nav: NavController) {
     val bottom = LocalBottomPadding.current
     val version = remember {
         try {
-            context.packageManager.getPackageInfo(context.packageName, 0).versionName ?: "1.3.2"
+            context.packageManager.getPackageInfo(context.packageName, 0).versionName ?: "1.3.3"
         } catch (e: Exception) {
-            "1.3.2"
+            "1.3.3"
         }
     }
 

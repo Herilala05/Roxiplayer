@@ -1,5 +1,23 @@
 # Journal des versions
 
+## 1.3.3
+- Nouvel accueil moderne inspiré de Lark Player, adapté à l'identité de Roxi
+- En-tête personnalisé selon l'heure et grande recherche accessible immédiatement
+- Nouveau « Mix Roxi » avec pochette, statistiques et lecture aléatoire
+- Bibliothèque accessible par grandes catégories : Titres, Albums, Artistes et Dossiers
+- Raccourcis horizontaux vers Favoris, Playlists, historique et statistiques
+- Section « Continuer l'écoute » avec grandes pochettes et bouton de lecture
+- Cartes, espacements, formes et écrans vides modernisés
+- Section Vidéos réorganisée dans l'esprit de Files by Google
+- Miniatures réelles avec durée, taille et date de chaque vidéo
+- Navigation rapide par dossier (Camera, Movies, WhatsApp, etc.)
+- Recherche instantanée dans les titres
+- Tri par date, nom ou taille
+- Affichage au choix en grille ou en liste
+- Dossier secret intégré au même navigateur avec verrouillage par PIN
+- Correction de la date des vidéos copiées dans le dossier secret
+- Lecture continue activée par défaut : la musique repart à la fin de la file
+
 ## 1.3.2
 - Nouvel onglet Vidéos (mémoire interne et carte SD)
 - Lecteur vidéo plein écran avec image dans l'image

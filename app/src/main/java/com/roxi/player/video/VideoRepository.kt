@@ -21,6 +21,7 @@ class VideoRepository(private val context: Context) {
             MediaStore.Video.Media.DURATION,
             MediaStore.Video.Media.SIZE,
             MediaStore.Video.Media.DATE_ADDED,
+            MediaStore.Video.Media.BUCKET_DISPLAY_NAME,
         )
         volumes.forEach { collection ->
             runCatching {
@@ -30,6 +31,7 @@ class VideoRepository(private val context: Context) {
                     val duration = c.getColumnIndexOrThrow(projection[2])
                     val size = c.getColumnIndexOrThrow(projection[3])
                     val date = c.getColumnIndexOrThrow(projection[4])
+                    val folder = c.getColumnIndex(projection[5])
                     while (c.moveToNext()) {
                         val mediaId = c.getLong(id)
                         val uri = ContentUris.withAppendedId(collection, mediaId)
@@ -40,6 +42,7 @@ class VideoRepository(private val context: Context) {
                             durationMs = c.getLong(duration),
                             size = c.getLong(size),
                             dateAdded = c.getLong(date),
+                            folder = if (folder >= 0) c.getString(folder)?.takeIf { it.isNotBlank() } ?: "Autres" else "Autres",
                         )
                     }
                 }
@@ -84,13 +87,19 @@ class SecretVault(private val context: Context) {
     }
 
     fun list(): List<VideoItem> = directory.listFiles()?.filter { it.isFile }?.map { file ->
-        VideoItem(file.absolutePath, Uri.fromFile(file), file.name.substringAfter('_').substringBeforeLast('.'), 0L, file.length(), file.lastModified(), true)
+        VideoItem(
+            id = file.absolutePath,
+            uri = Uri.fromFile(file),
+            title = file.name.substringAfter('_').substringBeforeLast('.'),
+            durationMs = 0L,
+            size = file.length(),
+            dateAdded = file.lastModified() / 1000L,
+            folder = "Dossier secret",
+            secret = true,
+        )
     }?.sortedByDescending { it.dateAdded } ?: emptyList()
 
-    fun delete(item: VideoItem): Boolean {
-        val path = item.uri.path ?: return false
-        return item.secret && File(path).delete()
-    }
+    fun delete(item: VideoItem): Boolean = item.secret && File(item.uri.path ?: return false).delete()
 
     private fun hash(pin: String, salt: ByteArray): String {
         val spec = javax.crypto.spec.PBEKeySpec(pin.toCharArray(), salt, 120_000, 256)

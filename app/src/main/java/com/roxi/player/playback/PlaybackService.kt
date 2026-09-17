@@ -58,6 +58,9 @@ class PlaybackService : MediaSessionService() {
             .setHandleAudioBecomingNoisy(true) // pause si on débranche les écouteurs
             .setWakeMode(C.WAKE_MODE_LOCAL)
             .build()
+        // Lecture continue par défaut : à la fin de la file, elle repart du début.
+        // L'utilisateur peut toujours choisir « ce titre » ou désactiver la répétition.
+        player.repeatMode = Player.REPEAT_MODE_ALL
         audioSessionId = player.audioSessionId
         AudioFx.attach(this, player)
         player.addListener(widgetListener)

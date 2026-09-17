@@ -15,14 +15,11 @@ jobs:
           distribution: temurin
           java-version: 17
       - uses: gradle/actions/setup-gradle@v4
-      - name: Extraire le projet
-        run: |
-          unzip -q RoxiPlayer.zip -d source
-          chmod +x source/RoxiPlayer/gradlew
       - name: Compiler l'APK
-        working-directory: source/RoxiPlayer
-        run: ./gradlew assembleDebug --stacktrace
+        run: |
+          chmod +x gradlew
+          ./gradlew assembleDebug --stacktrace
       - uses: actions/upload-artifact@v4
         with:
           name: RoxiPlayer-1.3.2-apk
-          path: source/RoxiPlayer/app/build/outputs/apk/debug/app-debug.apk
+          path: app/build/outputs/apk/debug/app-debug.apk

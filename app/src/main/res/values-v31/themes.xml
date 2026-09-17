@@ -1,0 +1,13 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <style name="Theme.RoxiPlayer" parent="android:Theme.Material.NoActionBar">
+        <item name="android:windowBackground">@color/roxi_bg</item>
+        <item name="android:colorBackground">@color/roxi_bg</item>
+        <item name="android:statusBarColor">@android:color/transparent</item>
+        <item name="android:navigationBarColor">@color/roxi_bg</item>
+        <item name="android:windowLightStatusBar">false</item>
+        <item name="android:windowSplashScreenBackground">@color/roxi_bg</item>
+        <!-- Pas d'icône système : notre animation d'entrée prend le relais -->
+        <item name="android:windowSplashScreenAnimatedIcon">@drawable/splash_empty</item>
+    </style>
+</resources>

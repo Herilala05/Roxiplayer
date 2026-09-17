@@ -104,6 +104,8 @@ import com.roxi.player.ui.screens.SongListScreen
 import com.roxi.player.ui.screens.VideoScreen
 import com.roxi.player.ui.theme.Roxi
 import com.roxi.player.ui.theme.RoxiTheme
+import com.roxi.player.ui.theme.AccentColor
+import com.roxi.player.ui.theme.roxiPalette
 import androidx.activity.ComponentActivity
 import androidx.activity.SystemBarStyle
 import androidx.activity.enableEdgeToEdge
@@ -161,22 +163,23 @@ fun RoxiApp() {
         2 -> systemDark
         else -> true
     }
+    val selectedAccent = AccentColor.entries.getOrElse(accent) { AccentColor.VIOLET }
+    val windowBg = remember(selectedAccent, dark) { roxiPalette(selectedAccent, dark).bg.toArgb() }
     LaunchedEffect(accent, dark) {
-        Roxi.apply(accent, dark)
         (context as? ComponentActivity)?.let { activity ->
             val transparent = android.graphics.Color.TRANSPARENT
             activity.enableEdgeToEdge(
                 statusBarStyle = if (dark) SystemBarStyle.dark(transparent) else SystemBarStyle.light(transparent, transparent),
                 navigationBarStyle = if (dark) SystemBarStyle.dark(transparent) else SystemBarStyle.light(transparent, transparent),
             )
-            activity.window.decorView.setBackgroundColor(Roxi.Bg.toArgb())
+            activity.window.decorView.setBackgroundColor(windowBg)
         }
     }
 
     var showSplash by rememberSaveable { mutableStateOf(true) }
 
     CompositionLocalProvider(LocalVm provides vm) {
-        RoxiTheme {
+        RoxiTheme(accent = selectedAccent, dark = dark) {
             Box(
                 Modifier
                     .fillMaxSize()

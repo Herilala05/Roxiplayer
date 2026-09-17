@@ -1,5 +1,5 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
     <string name="app_name">Roxi Player</string>
-    <string name="widget_description">Contrôle la musique depuis l'écran d'accueil</string>
+    <string name="widget_description">Contrôle la musique depuis l\'écran d\'accueil</string>
 </resources>

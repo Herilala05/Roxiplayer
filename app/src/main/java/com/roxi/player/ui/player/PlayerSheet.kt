@@ -317,10 +317,11 @@ fun PlayerSheet(
 
         // Lecteur toujours sombre : icônes de la barre d'état claires quand il est ouvert
         val view = androidx.compose.ui.platform.LocalView.current
-        LaunchedEffect(expanded, Roxi.isDark) {
+        val appIsDark = Roxi.isDark
+        LaunchedEffect(expanded, appIsDark) {
             val window = (view.context as? android.app.Activity)?.window ?: return@LaunchedEffect
             androidx.core.view.WindowCompat.getInsetsController(window, view)
-                .isAppearanceLightStatusBars = !expanded && !Roxi.isDark
+                .isAppearanceLightStatusBars = !expanded && !appIsDark
         }
 
         if (showScrim) {

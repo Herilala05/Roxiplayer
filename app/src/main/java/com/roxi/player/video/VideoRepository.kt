@@ -99,7 +99,10 @@ class SecretVault(private val context: Context) {
         )
     }?.sortedByDescending { it.dateAdded } ?: emptyList()
 
-    fun delete(item: VideoItem): Boolean = item.secret && File(item.uri.path ?: return false).delete()
+    fun delete(item: VideoItem): Boolean {
+        val path = item.uri.path ?: return false
+        return item.secret && File(path).delete()
+    }
 
     private fun hash(pin: String, salt: ByteArray): String {
         val spec = javax.crypto.spec.PBEKeySpec(pin.toCharArray(), salt, 120_000, 256)

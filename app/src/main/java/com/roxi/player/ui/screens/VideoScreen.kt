@@ -233,7 +233,14 @@ fun VideoScreen() {
                     gridMode = gridMode,
                     bottom = bottom,
                     emptyMessage = if (query.isNotBlank()) "Aucun résultat" else "Aucune vidéo trouvée",
-                    onPlay = { VideoPlayerActivity.play(context, it.uri) },
+                    onPlay = { selected ->
+                        VideoPlayerActivity.play(
+                            context = context,
+                            uri = selected.uri,
+                            playlist = displayed.map { it.uri },
+                            titles = displayed.map { it.title },
+                        )
+                    },
                     onDelete = if (secretMode) ({ video -> vault.delete(video); secretVideos = vault.list() }) else null,
                 )
             }

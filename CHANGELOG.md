@@ -1,5 +1,18 @@
 # Journal des versions
 
+## 1.3.4
+- Nouveau lecteur vidéo RoxiPlayer avec commandes modernes plein écran
+- Volume par glissement vertical à droite et luminosité à gauche
+- Double toucher à gauche ou à droite pour reculer ou avancer de 10 secondes
+- Recherche rapide dans la vidéo par glissement horizontal
+- Vidéo précédente et suivante avec lecture automatique de la liste affichée
+- Modes sans boucle, boucle complète, répétition d'une vidéo et lecture aléatoire
+- Verrouillage des gestes et des commandes pendant le visionnage
+- Rotation portrait/paysage et modes Ajuster, Remplir et Zoomer
+- Vitesses de lecture de 0,5× à 2×
+- Reprise automatique à la dernière position de chaque vidéo
+- Importation de sous-titres SRT et mode image dans l'image
+
 ## 1.3.3
 - Nouvel accueil moderne inspiré de Lark Player, adapté à l'identité de Roxi
 - En-tête personnalisé selon l'heure et grande recherche accessible immédiatement

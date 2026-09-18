@@ -24,5 +24,5 @@ jobs:
 
       - uses: actions/upload-artifact@v4
         with:
-          name: RoxiPlayer-1.3.3-apk
+          name: RoxiPlayer-1.3.4-apk
           path: app/build/outputs/apk/debug/app-debug.apk

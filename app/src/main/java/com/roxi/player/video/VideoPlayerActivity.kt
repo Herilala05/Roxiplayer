@@ -1,5 +1,13 @@
 package com.roxi.player.video
 
+import android.app.AlertDialog
+import android.content.pm.PackageManager
+import android.provider.Settings
+import android.widget.Button
+import android.widget.ScrollView
+import android.widget.HorizontalScrollView
+import androidx.media3.common.AudioAttributes
+import java.util.UUID
 import android.app.PictureInPictureParams
 import android.content.Context
 import android.content.Intent
@@ -57,6 +65,11 @@ class VideoPlayerActivity : ComponentActivity() {
     private var playlist = arrayListOf<Uri>()
     private var titles = arrayListOf<String>()
     private var currentUri: Uri? = null
+    private var resumePlayback = true
+    private var stopped = false
+    private var queueToken: String? = null
+    private var settingsDialog: AlertDialog? = null
+    private val preferences by lazy { getSharedPreferences("roxi_video_controls", MODE_PRIVATE) }
     private var controlsVisible = true
     private var locked = false
     private var resizeIndex = 0
@@ -89,14 +102,23 @@ class VideoPlayerActivity : ComponentActivity() {
         window.navigationBarColor = Color.BLACK
         hideSystemBars()
 
-        val selected = intent.getStringExtra(EXTRA_URI)?.let(Uri::parse) ?: return finish()
-        playlist = intent.getStringArrayListExtra(EXTRA_PLAYLIST)?.mapTo(arrayListOf(), Uri::parse)
-            ?.takeIf { it.isNotEmpty() } ?: arrayListOf(selected)
-        titles = intent.getStringArrayListExtra(EXTRA_TITLES) ?: arrayListOf()
+        volumeControlStream = AudioManager.STREAM_MUSIC
+        val selected = (savedInstanceState?.getString("current_uri")
+            ?: intent.getStringExtra(EXTRA_URI))?.let(Uri::parse) ?: return finish()
+        queueToken = intent.getStringExtra(EXTRA_QUEUE)
+        val queue = queueToken?.let { VideoPlaybackQueues.get(it) }
+        playlist = queue?.mapTo(arrayListOf()) { it.uri } ?: arrayListOf(selected)
+        titles = queue?.mapTo(arrayListOf()) { it.title } ?: arrayListOf()
         val startIndex = playlist.indexOf(selected).coerceAtLeast(0)
+        savedInstanceState?.getFloat("brightness", -1f)?.let {
+            window.attributes = window.attributes.apply { screenBrightness = it }
+        }
 
         buildInterface()
         player = ExoPlayer.Builder(this)
+            .setAudioAttributes(AudioAttributes.Builder().setUsage(C.USAGE_MEDIA)
+                .setContentType(C.AUDIO_CONTENT_TYPE_MOVIE).build(), true)
+            .setHandleAudioBecomingNoisy(true)
             .setSeekBackIncrementMs(SEEK_STEP)
             .setSeekForwardIncrementMs(SEEK_STEP)
             .build().also { exo ->
@@ -105,23 +127,33 @@ class VideoPlayerActivity : ComponentActivity() {
                 exo.shuffleModeEnabled = prefs.getBoolean(KEY_SHUFFLE, false)
                 exo.addListener(object : Player.Listener {
                     override fun onIsPlayingChanged(isPlaying: Boolean) {
+                        playerView.keepScreenOn = isPlaying
                         playButton.text = if (isPlaying) "❚❚" else "▶"
                         if (isPlaying) scheduleHide() else handler.removeCallbacks(hideControls)
                     }
                     override fun onMediaItemTransition(mediaItem: MediaItem?, reason: Int) {
-                        savePosition()
                         currentUri = mediaItem?.localConfiguration?.uri
                         updateTitle()
+                    }
+                    override fun onPositionDiscontinuity(oldPosition: Player.PositionInfo, newPosition: Player.PositionInfo, reason: Int) {
+                        if (oldPosition.mediaItemIndex != newPosition.mediaItemIndex) {
+                            playlist.getOrNull(oldPosition.mediaItemIndex)?.let { uri ->
+                                val position = if (reason == Player.DISCONTINUITY_REASON_AUTO_TRANSITION) 0L else oldPosition.positionMs.coerceAtLeast(0L)
+                                prefs.edit().putLong(positionKey(uri), position).apply()
+                            }
+                        }
                     }
                     override fun onPlayerError(error: PlaybackException) {
                         Toast.makeText(this@VideoPlayerActivity, "Cette vidéo ne peut pas être lue", Toast.LENGTH_LONG).show()
                     }
                 })
-                val saved = prefs.getLong(positionKey(selected), 0L)
+                val saved = savedInstanceState?.getLong("position") ?: prefs.getLong(positionKey(selected), 0L)
+                exo.setPlaybackSpeed(preferences.getFloat("speed", 1f).coerceIn(.5f, 2f))
                 exo.setMediaItems(playlist.map { MediaItem.fromUri(it) }, startIndex, saved)
                 currentUri = selected
                 exo.prepare()
-                exo.playWhenReady = true
+                resumePlayback = savedInstanceState?.getBoolean("playing") ?: true
+                exo.playWhenReady = resumePlayback
             }
         updateTitle()
         handler.post(progressUpdater)
@@ -132,8 +164,8 @@ class VideoPlayerActivity : ComponentActivity() {
         playerView = PlayerView(this).apply {
             layoutParams = FrameLayout.LayoutParams(MATCH, MATCH)
             useController = false
-            keepScreenOn = true
-            resizeMode = AspectRatioFrameLayout.RESIZE_MODE_FIT
+            keepScreenOn = false
+            resizeMode = preferences.getInt("resize", AspectRatioFrameLayout.RESIZE_MODE_FIT)
         }
         root.addView(playerView)
         root.addView(View(this).apply {
@@ -157,6 +189,7 @@ class VideoPlayerActivity : ComponentActivity() {
         top.addView(action("‹") { finish() }, LinearLayout.LayoutParams(dp(48), dp(48)))
         top.addView(titleText)
         top.addView(action("PiP") { enterPip() }, LinearLayout.LayoutParams(dp(52), dp(48)))
+        top.addView(action("Réglages") { showSettings() }, LinearLayout.LayoutParams(dp(76), dp(48)))
         top.addView(action("🔒") { setLocked(true) }, LinearLayout.LayoutParams(dp(48), dp(48)))
         controls.addView(top, LinearLayout.LayoutParams(MATCH, WRAP))
         controls.addView(View(this), LinearLayout.LayoutParams(MATCH, 0, 1f))
@@ -190,7 +223,11 @@ class VideoPlayerActivity : ComponentActivity() {
         tools.addView(action(if (prefs.getBoolean(KEY_SHUFFLE, false)) "Aléa ✓" else "Aléa") { toggleShuffle(it as TextView) })
         tools.addView(action("Sous-titre") { subtitlePicker.launch(arrayOf("application/x-subrip", "text/*")) })
         tools.addView(action("Rotation") { rotateScreen() })
-        controls.addView(tools, LinearLayout.LayoutParams(MATCH, dp(58)))
+        for (i in 0 until tools.childCount) tools.getChildAt(i).layoutParams = LinearLayout.LayoutParams(dp(86), dp(52))
+        controls.addView(HorizontalScrollView(this).apply {
+            isHorizontalScrollBarEnabled = false
+            addView(tools)
+        }, LinearLayout.LayoutParams(MATCH, dp(58)))
         root.addView(controls)
 
         feedback = TextView(this).apply {
@@ -227,13 +264,14 @@ class VideoPlayerActivity : ComponentActivity() {
     }
 
     private fun handleTouch(view: View, event: MotionEvent): Boolean {
-        if (locked) return true
+        if (locked || !::player.isInitialized) return true
         gestureDetector.onTouchEvent(event)
         when (event.actionMasked) {
             MotionEvent.ACTION_DOWN -> {
                 downX = event.x; downY = event.y; startPosition = player.currentPosition
                 startVolume = audioManager.getStreamVolume(AudioManager.STREAM_MUSIC)
-                startBrightness = window.attributes.screenBrightness.takeIf { it >= 0f } ?: .5f
+                startBrightness = window.attributes.screenBrightness.takeIf { it >= 0f }
+                    ?: Settings.System.getInt(contentResolver, Settings.System.SCREEN_BRIGHTNESS, 128) / 255f
                 gestureMode = GestureMode.NONE
             }
             MotionEvent.ACTION_MOVE -> {
@@ -255,8 +293,8 @@ class VideoPlayerActivity : ComponentActivity() {
                     GestureMode.VOLUME -> {
                         val maximum = audioManager.getStreamMaxVolume(AudioManager.STREAM_MUSIC)
                         val value = (startVolume - dy / view.height * maximum).toInt().coerceIn(0, maximum)
-                        audioManager.setStreamVolume(AudioManager.STREAM_MUSIC, value, 0)
-                        showFeedback("🔊  ${value * 100 / maximum} %")
+                        runCatching { audioManager.setStreamVolume(AudioManager.STREAM_MUSIC, value, 0) }
+                        showFeedback("🔊  ${value * 100 / maximum.coerceAtLeast(1)} %")
                     }
                     else -> Unit
                 }
@@ -266,6 +304,86 @@ class VideoPlayerActivity : ComponentActivity() {
             }
         }
         return true
+    }
+
+    private fun showSettings() {
+        if (settingsDialog?.isShowing == true) return
+        if (!::player.isInitialized) return
+        val p = player
+        val panel = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            setPadding(dp(20), dp(8), dp(20), dp(8))
+        }
+        fun slider(label: String, maximum: Int, initial: Int, onChange: (Int) -> Unit) {
+            val caption = TextView(this).apply { text = "$label : $initial / $maximum" }
+            panel.addView(caption)
+            panel.addView(SeekBar(this).apply {
+                max = maximum
+                progress = initial
+                contentDescription = label
+                setOnSeekBarChangeListener(object : SeekBar.OnSeekBarChangeListener {
+                    override fun onProgressChanged(bar: SeekBar?, value: Int, fromUser: Boolean) {
+                        caption.text = "$label : $value / $maximum"
+                        if (fromUser) onChange(value)
+                    }
+                    override fun onStartTrackingTouch(bar: SeekBar?) = Unit
+                    override fun onStopTrackingTouch(bar: SeekBar?) = Unit
+                })
+            }, LinearLayout.LayoutParams(-1, dp(48)))
+        }
+        val audio = getSystemService(Context.AUDIO_SERVICE) as AudioManager
+        slider("Volume", audio.getStreamMaxVolume(AudioManager.STREAM_MUSIC),
+            audio.getStreamVolume(AudioManager.STREAM_MUSIC)) { value ->
+            try { audio.setStreamVolume(AudioManager.STREAM_MUSIC, value, 0) }
+            catch (error: SecurityException) {
+                Toast.makeText(this, "Utilise les boutons de volume du téléphone", Toast.LENGTH_SHORT).show()
+            }
+        }
+        val systemBrightness = Settings.System.getInt(contentResolver, Settings.System.SCREEN_BRIGHTNESS, 128) / 255f
+        val brightness = window.attributes.screenBrightness.takeIf { it >= 0f } ?: systemBrightness
+        slider("Luminosité", 100, (brightness * 100).toInt().coerceIn(0, 100)) { value ->
+            window.attributes = window.attributes.apply { screenBrightness = (value / 100f).coerceAtLeast(0.01f) }
+        }
+        panel.addView(Button(this).apply {
+            text = "Luminosité du téléphone"
+            setOnClickListener {
+                window.attributes = window.attributes.apply { screenBrightness = -1f }
+                settingsDialog?.dismiss()
+            }
+        })
+        panel.addView(Button(this).apply {
+            text = "Vitesse : ${p.playbackParameters.speed}×"
+            setOnClickListener {
+                settingsDialog?.dismiss()
+                val speeds = floatArrayOf(0.5f, 0.75f, 1f, 1.25f, 1.5f, 2f)
+                settingsDialog = AlertDialog.Builder(this@VideoPlayerActivity)
+                    .setTitle("Vitesse de lecture")
+                    .setSingleChoiceItems(speeds.map { "$it×" }.toTypedArray(),
+                        speeds.indexOf(p.playbackParameters.speed)) { dialog, which ->
+                        p.setPlaybackSpeed(speeds[which])
+                        preferences.edit().putFloat("speed", speeds[which]).apply()
+                        dialog.dismiss()
+                    }.setNegativeButton("Annuler", null).show()
+            }
+        })
+        panel.addView(Button(this).apply {
+            text = "Format de l’image"
+            setOnClickListener {
+                settingsDialog?.dismiss()
+                val modes = intArrayOf(AspectRatioFrameLayout.RESIZE_MODE_FIT,
+                    AspectRatioFrameLayout.RESIZE_MODE_ZOOM, AspectRatioFrameLayout.RESIZE_MODE_FILL)
+                settingsDialog = AlertDialog.Builder(this@VideoPlayerActivity).setTitle("Format de l’image")
+                    .setSingleChoiceItems(arrayOf("Adapter (image entière)", "Zoom (bords coupés)", "Étirer"),
+                        modes.indexOf(playerView.resizeMode ?: modes[0])) { dialog, which ->
+                        playerView.resizeMode = modes[which]
+                        preferences.edit().putInt("resize", modes[which]).apply()
+                        dialog.dismiss()
+                    }.setNegativeButton("Annuler", null).show()
+            }
+        })
+        settingsDialog = AlertDialog.Builder(this).setTitle("Réglages vidéo")
+            .setView(ScrollView(this).apply { addView(panel) })
+            .setPositiveButton("Fermer", null).show()
     }
 
     private fun addSubtitle(uri: Uri) {
@@ -284,17 +402,23 @@ class VideoPlayerActivity : ComponentActivity() {
     }
 
     private fun cycleResizeMode() {
-        resizeIndex = (resizeIndex + 1) % 3
+        resizeIndex = when (playerView.resizeMode) {
+            AspectRatioFrameLayout.RESIZE_MODE_FIT -> 1
+            AspectRatioFrameLayout.RESIZE_MODE_FILL -> 2
+            else -> 0
+        }
         playerView.resizeMode = when (resizeIndex) {
             1 -> AspectRatioFrameLayout.RESIZE_MODE_FILL
             2 -> AspectRatioFrameLayout.RESIZE_MODE_ZOOM
             else -> AspectRatioFrameLayout.RESIZE_MODE_FIT
         }
+        preferences.edit().putInt("resize", playerView.resizeMode).apply()
         showFeedback(arrayOf("Ajuster", "Remplir", "Zoomer")[resizeIndex])
     }
     private fun cycleSpeed(label: TextView) {
-        val speeds = floatArrayOf(.5f, 1f, 1.25f, 1.5f, 2f)
+        val speeds = floatArrayOf(.5f, .75f, 1f, 1.25f, 1.5f, 2f)
         val next = speeds.firstOrNull { it > player.playbackParameters.speed + .01f } ?: speeds.first()
+        preferences.edit().putFloat("speed", next).apply()
         player.setPlaybackSpeed(next); label.text = "${next}×".replace(".0", "")
         showFeedback("Vitesse ${label.text}")
     }
@@ -335,11 +459,16 @@ class VideoPlayerActivity : ComponentActivity() {
     }
     private fun showControls() { setControlsVisible(true); scheduleHide() }
     private fun setControlsVisible(value: Boolean) {
-        controlsVisible = value; controls.visibility = if (value) View.VISIBLE else View.GONE
+        controlsVisible = value && !locked && !isInPictureInPictureMode
+        controls.visibility = if (controlsVisible) View.VISIBLE else View.GONE
         if (value) hideSystemBars()
     }
     private fun scheduleHide() { handler.removeCallbacks(hideControls); handler.postDelayed(hideControls, 3_500) }
-    private fun showFeedback(message: String) { feedback.text = message; feedback.visibility = View.VISIBLE }
+    private val hideFeedback = Runnable { feedback.visibility = View.GONE }
+    private fun showFeedback(message: String) {
+        feedback.text = message; feedback.visibility = View.VISIBLE
+        handler.removeCallbacks(hideFeedback); handler.postDelayed(hideFeedback, 1_000)
+    }
     private fun savePosition() {
         if (!::player.isInitialized) return
         val uri = currentUri ?: return
@@ -347,19 +476,50 @@ class VideoPlayerActivity : ComponentActivity() {
         prefs.edit().putLong(positionKey(uri), position).apply()
     }
     private fun enterPip() {
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-            val ratio = player.videoSize.let { if (it.width > 0 && it.height > 0) Rational(it.width, it.height) else Rational(16, 9) }
-            enterPictureInPictureMode(PictureInPictureParams.Builder().setAspectRatio(ratio).build())
-        }
+        if (!::player.isInitialized || !packageManager.hasSystemFeature(PackageManager.FEATURE_PICTURE_IN_PICTURE)) return
+        settingsDialog?.dismiss()
+        val size = player.videoSize
+        val aspect = if (size.width > 0 && size.height > 0) size.width.toFloat() / size.height else 16f / 9f
+        val ratio = Rational((aspect.coerceIn(0.42f, 2.38f) * 1000).toInt(), 1000)
+        runCatching { enterPictureInPictureMode(PictureInPictureParams.Builder().setAspectRatio(ratio).build()) }
     }
 
     override fun onUserLeaveHint() { super.onUserLeaveHint(); if (::player.isInitialized && player.isPlaying) enterPip() }
     override fun onPictureInPictureModeChanged(inPip: Boolean, newConfig: Configuration) {
         super.onPictureInPictureModeChanged(inPip, newConfig)
-        if (inPip) { controls.visibility = View.GONE; unlockButton.visibility = View.GONE } else if (!locked) showControls()
+        if (inPip) { controls.visibility = View.GONE; unlockButton.visibility = View.GONE; feedback.visibility = View.GONE }
+        else if (!locked) showControls() else unlockButton.visibility = View.VISIBLE
     }
-    override fun onStop() { savePosition(); super.onStop() }
+    override fun onStart() {
+        super.onStart()
+        stopped = false
+        if (::player.isInitialized) {
+            handler.removeCallbacks(progressUpdater)
+            handler.post(progressUpdater)
+            if (resumePlayback) player.play()
+        }
+    }
+    override fun onStop() {
+        savePosition()
+        if (::player.isInitialized) { resumePlayback = player.playWhenReady; player.pause() }
+        stopped = true
+        handler.removeCallbacks(progressUpdater)
+        settingsDialog?.dismiss()
+        super.onStop()
+    }
+    override fun onSaveInstanceState(outState: Bundle) {
+        if (::player.isInitialized) {
+            outState.putString("current_uri", currentUri?.toString())
+            outState.putLong("position", player.currentPosition)
+            outState.putBoolean("playing", if (stopped) resumePlayback else player.playWhenReady)
+            outState.putFloat("brightness", window.attributes.screenBrightness)
+        }
+        super.onSaveInstanceState(outState)
+    }
     override fun onDestroy() {
+        savePosition()
+        settingsDialog?.dismiss()
+        if (isFinishing) queueToken?.let { VideoPlaybackQueues.remove(it) }
         handler.removeCallbacksAndMessages(null)
         if (::player.isInitialized) { playerView.player = null; player.release() }
         super.onDestroy()
@@ -387,18 +547,29 @@ class VideoPlayerActivity : ComponentActivity() {
         private const val WRAP = ViewGroup.LayoutParams.WRAP_CONTENT
         private const val SEEK_STEP = 10_000L
         private const val EXTRA_URI = "video_uri"
-        private const val EXTRA_PLAYLIST = "video_playlist"
-        private const val EXTRA_TITLES = "video_titles"
+        private const val EXTRA_QUEUE = "video_queue"
         private const val KEY_REPEAT = "repeat_mode"
         private const val KEY_SHUFFLE = "shuffle_mode"
         private fun positionKey(uri: Uri) = "position_${uri.toString().hashCode()}"
 
-        fun play(context: Context, uri: Uri, playlist: List<Uri> = listOf(uri), titles: List<String> = emptyList()) {
-            context.startActivity(Intent(context, VideoPlayerActivity::class.java).apply {
-                putExtra(EXTRA_URI, uri.toString())
-                putStringArrayListExtra(EXTRA_PLAYLIST, ArrayList(playlist.map(Uri::toString)))
-                putStringArrayListExtra(EXTRA_TITLES, ArrayList(titles))
-            })
+        fun play(context: Context, uri: Uri) {
+            context.startActivity(Intent(context, VideoPlayerActivity::class.java).putExtra(EXTRA_URI, uri.toString()))
+        }
+        fun play(context: Context, videos: List<VideoItem>, selected: VideoItem) {
+            if (videos.none { it.id == selected.id }) return play(context, selected.uri)
+            val token = VideoPlaybackQueues.put(videos)
+            context.startActivity(Intent(context, VideoPlayerActivity::class.java)
+                .putExtra(EXTRA_URI, selected.uri.toString()).putExtra(EXTRA_QUEUE, token))
         }
     }
+}
+
+private object VideoPlaybackQueues {
+    private val queues = LinkedHashMap<String, List<VideoItem>>()
+    @Synchronized fun put(videos: List<VideoItem>): String {
+        while (queues.size >= 4) queues.remove(queues.keys.first())
+        return UUID.randomUUID().toString().also { queues[it] = videos.toList() }
+    }
+    @Synchronized fun get(token: String): List<VideoItem>? = queues[token]
+    @Synchronized fun remove(token: String) { queues.remove(token) }
 }

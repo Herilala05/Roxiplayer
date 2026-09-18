@@ -5,6 +5,9 @@ import android.content.Context
 import android.net.Uri
 import android.os.Build
 import android.provider.MediaStore
+import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.ensureActive
+import kotlin.coroutines.coroutineContext
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import java.io.File
@@ -24,7 +27,8 @@ class VideoRepository(private val context: Context) {
             MediaStore.Video.Media.BUCKET_DISPLAY_NAME,
         )
         volumes.forEach { collection ->
-            runCatching {
+            coroutineContext.ensureActive()
+            try {
                 context.contentResolver.query(collection, projection, null, null, "${MediaStore.Video.Media.DATE_ADDED} DESC")?.use { c ->
                     val id = c.getColumnIndexOrThrow(projection[0])
                     val name = c.getColumnIndexOrThrow(projection[1])
@@ -33,6 +37,7 @@ class VideoRepository(private val context: Context) {
                     val date = c.getColumnIndexOrThrow(projection[4])
                     val folder = c.getColumnIndex(projection[5])
                     while (c.moveToNext()) {
+                        coroutineContext.ensureActive()
                         val mediaId = c.getLong(id)
                         val uri = ContentUris.withAppendedId(collection, mediaId)
                         result += VideoItem(
@@ -46,6 +51,10 @@ class VideoRepository(private val context: Context) {
                         )
                     }
                 }
+            } catch (cancelled: CancellationException) {
+                throw cancelled
+            } catch (error: Exception) {
+                android.util.Log.w("RoxiVideoScan", "Volume vidéo inaccessible", error)
             }
         }
         result.distinctBy { it.uri }.sortedByDescending { it.dateAdded }
@@ -110,3 +119,4 @@ class SecretVault(private val context: Context) {
         return android.util.Base64.encodeToString(bytes, android.util.Base64.NO_WRAP)
     }
 }
+

@@ -7,7 +7,7 @@
         <item name="android:navigationBarColor">@color/roxi_bg</item>
         <item name="android:windowLightStatusBar">false</item>
         <item name="android:windowSplashScreenBackground">@color/roxi_bg</item>
-        <!-- Pas d'icône système : notre animation d'entrée prend le relais -->
-        <item name="android:windowSplashScreenAnimatedIcon">@drawable/splash_empty</item>
+        <!-- Logo visible pendant le démarrage système, avant Compose. -->
+        <item name="android:windowSplashScreenAnimatedIcon">@drawable/roxi_logo</item>
     </style>
 </resources>

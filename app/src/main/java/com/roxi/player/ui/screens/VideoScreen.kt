@@ -1,6 +1,8 @@
 package com.roxi.player.ui.screens
 
 import android.Manifest
+import android.content.Intent
+import android.provider.Settings
 import android.content.Context
 import android.content.pm.PackageManager
 import android.graphics.Bitmap
@@ -44,12 +46,19 @@ import androidx.core.content.ContextCompat
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.compose.LifecycleEventEffect
 import com.roxi.player.data.formatTime
+import com.roxi.player.ui.components.LocalVm
 import com.roxi.player.ui.components.LocalBottomPadding
 import com.roxi.player.ui.theme.Roxi
 import com.roxi.player.video.SecretVault
 import com.roxi.player.video.VideoItem
 import com.roxi.player.video.VideoPlayerActivity
 import com.roxi.player.video.VideoRepository
+import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.ensureActive
+import kotlinx.coroutines.sync.Semaphore
+import kotlinx.coroutines.sync.withPermit
+import kotlin.coroutines.coroutineContext
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
@@ -63,44 +72,71 @@ private enum class VideoSort(val label: String) {
 fun VideoScreen() {
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
+    val vm = LocalVm.current
     val repository = remember { VideoRepository(context) }
     val vault = remember { SecretVault(context) }
     var videos by remember { mutableStateOf<List<VideoItem>>(emptyList()) }
-    var secretVideos by remember { mutableStateOf(vault.list()) }
+    var secretVideos by remember { mutableStateOf<List<VideoItem>>(emptyList()) }
     var secretMode by rememberSaveable { mutableStateOf(false) }
     var unlocked by rememberSaveable { mutableStateOf(false) }
     var showPin by remember { mutableStateOf(false) }
     var showUrl by remember { mutableStateOf(false) }
     var refreshing by remember { mutableStateOf(false) }
+    var refreshJob by remember { mutableStateOf<Job?>(null) }
     var query by rememberSaveable { mutableStateOf("") }
     var selectedFolder by rememberSaveable { mutableStateOf("Toutes") }
     var gridMode by rememberSaveable { mutableStateOf(true) }
     var sort by rememberSaveable { mutableStateOf(VideoSort.RECENT) }
     var showSort by remember { mutableStateOf(false) }
     val bottom = LocalBottomPadding.current
+    val permission = if (Build.VERSION.SDK_INT >= 33) Manifest.permission.READ_MEDIA_VIDEO else Manifest.permission.READ_EXTERNAL_STORAGE
+    fun hasVideoAccess(): Boolean =
+        ContextCompat.checkSelfPermission(context, permission) == PackageManager.PERMISSION_GRANTED ||
+            (Build.VERSION.SDK_INT >= 34 && ContextCompat.checkSelfPermission(context,
+                Manifest.permission.READ_MEDIA_VISUAL_USER_SELECTED) == PackageManager.PERMISSION_GRANTED)
+    var videoAccess by remember { mutableStateOf(hasVideoAccess()) }
 
     LifecycleEventEffect(Lifecycle.Event.ON_STOP) { unlocked = false }
 
     fun refresh() {
-        scope.launch {
+        if (refreshJob?.isActive == true) return
+        refreshJob = scope.launch {
             refreshing = true
-            videos = repository.scan()
-            secretVideos = vault.list()
-            refreshing = false
+            try {
+                videoAccess = hasVideoAccess()
+                videos = if (videoAccess) repository.scan() else emptyList()
+                secretVideos = withContext(Dispatchers.IO) { vault.list() }
+            } catch (cancelled: CancellationException) {
+                throw cancelled
+            } catch (error: Exception) {
+                Toast.makeText(context, "Impossible de charger les vidéos. Réessaie.", Toast.LENGTH_SHORT).show()
+            } finally {
+                refreshing = false
+            }
         }
     }
 
-    val permission = if (Build.VERSION.SDK_INT >= 33) Manifest.permission.READ_MEDIA_VIDEO else Manifest.permission.READ_EXTERNAL_STORAGE
-    val permissionLauncher = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { if (it) refresh() }
-    LaunchedEffect(Unit) {
-        if (ContextCompat.checkSelfPermission(context, permission) == PackageManager.PERMISSION_GRANTED) refresh()
-        else permissionLauncher.launch(permission)
+    val permissionLauncher = rememberLauncherForActivityResult(ActivityResultContracts.RequestMultiplePermissions()) {
+        videoAccess = hasVideoAccess()
+        refresh()
+    }
+    fun requestVideos() {
+        permissionLauncher.launch(if (Build.VERSION.SDK_INT >= 34)
+            arrayOf(permission, Manifest.permission.READ_MEDIA_VISUAL_USER_SELECTED) else arrayOf(permission))
+    }
+    LaunchedEffect(Unit) { refresh() }
+    LifecycleEventEffect(Lifecycle.Event.ON_RESUME) {
+        val allowed = hasVideoAccess()
+        videoAccess = allowed
+        if (!allowed) videos = emptyList()
+        // La sélection Android 14 peut changer sans changement de permission.
+        refresh()
     }
 
     val importer = rememberLauncherForActivityResult(ActivityResultContracts.OpenMultipleDocuments()) { uris ->
         scope.launch {
             val imported = uris.count { vault.import(it) }
-            secretVideos = vault.list()
+            secretVideos = withContext(Dispatchers.IO) { vault.list() }
             Toast.makeText(context, "$imported copie(s) ajoutée(s) au dossier secret", Toast.LENGTH_SHORT).show()
         }
     }
@@ -212,10 +248,31 @@ fun VideoScreen() {
             }
         }
 
+        if (!secretMode && videoAccess && Build.VERSION.SDK_INT >= 34 &&
+            ContextCompat.checkSelfPermission(context, permission) != PackageManager.PERMISSION_GRANTED) {
+            Row(Modifier.fillMaxWidth().padding(horizontal = 16.dp), verticalAlignment = Alignment.CenterVertically) {
+                Text("Accès aux vidéos sélectionnées", modifier = Modifier.weight(1f),
+                    color = Roxi.TextSub, style = MaterialTheme.typography.bodySmall)
+                TextButton(onClick = ::requestVideos) { Text("Modifier") }
+            }
+        }
         if (refreshing) LinearProgressIndicator(Modifier.fillMaxWidth())
 
         when {
             secretMode && !unlocked -> LockedPanel { showPin = true }
+            !secretMode && !videoAccess -> Column(
+                Modifier.fillMaxWidth().padding(24.dp),
+                horizontalAlignment = Alignment.CenterHorizontally,
+            ) {
+                Icon(Icons.Rounded.VideoLibrary, null, tint = Roxi.VioletSoft, modifier = Modifier.size(48.dp))
+                Text("Autorise l’accès à tes vidéos", fontWeight = FontWeight.Bold, color = Roxi.Text)
+                Text("Choisis les vidéos que Roxi Player peut afficher.", color = Roxi.TextSub)
+                Button(onClick = ::requestVideos) { Text("Choisir les vidéos") }
+                TextButton(onClick = {
+                    context.startActivity(Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS,
+                        Uri.fromParts("package", context.packageName, null)))
+                }) { Text("Ouvrir les paramètres") }
+            }
             else -> {
                 if (secretMode) {
                     Button(
@@ -232,14 +289,15 @@ fun VideoScreen() {
                     items = displayed,
                     gridMode = gridMode,
                     bottom = bottom,
-                    emptyMessage = if (query.isNotBlank()) "Aucun résultat" else "Aucune vidéo trouvée",
-                    onPlay = { selected ->
-                        VideoPlayerActivity.play(
-                            context = context,
-                            uri = selected.uri,
-                            playlist = displayed.map { it.uri },
-                            titles = displayed.map { it.title },
-                        )
+                    emptyMessage = when {
+                        refreshing -> "Chargement des vidéos…"
+                        query.isNotBlank() -> "Aucun résultat pour cette recherche"
+                        secretMode -> "Ajoute une vidéo avec le bouton ci-dessus"
+                        else -> "Aucune vidéo dans ce dossier"
+                    },
+                    onPlay = {
+                        vm.player.pause()
+                        VideoPlayerActivity.play(context, displayed, it)
                     },
                     onDelete = if (secretMode) ({ video -> vault.delete(video); secretVideos = vault.list() }) else null,
                 )
@@ -259,6 +317,7 @@ fun VideoScreen() {
     if (showUrl) UrlDialog(onDismiss = { showUrl = false }) { value ->
         runCatching { Uri.parse(value.trim()) }.getOrNull()?.takeIf { it.scheme == "http" || it.scheme == "https" }?.let {
             showUrl = false
+            vm.player.pause()
             VideoPlayerActivity.play(context, it)
         } ?: Toast.makeText(context, "Lien invalide", Toast.LENGTH_SHORT).show()
     }
@@ -379,32 +438,51 @@ private fun VideoMenu(video: VideoItem, onPlay: (VideoItem) -> Unit, onDelete: (
 }
 
 private object VideoThumbCache {
-    private val cache = LruCache<String, ImageBitmap>(80)
+    // Budget en octets, et non en nombre de vidéos : au maximum 12 Mio.
+    private val cache = object : LruCache<String, Bitmap>(12 * 1024 * 1024) {
+        override fun sizeOf(key: String, value: Bitmap): Int = value.allocationByteCount
+    }
+    // Deux décodages au maximum, même lors d'un défilement rapide.
+    private val decoders = Semaphore(2)
 
-    fun peek(id: String): ImageBitmap? = cache.get(id)
+    private fun key(video: VideoItem) = "${video.id}:${video.size}:${video.dateAdded}"
+    fun peek(video: VideoItem): ImageBitmap? = cache.get(key(video))?.asImageBitmap()
 
-    fun load(context: Context, video: VideoItem): ImageBitmap? {
-        cache.get(video.id)?.let { return it }
-        val bitmap: Bitmap? = runCatching {
-            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) context.contentResolver.loadThumbnail(video.uri, Size(640, 400), null) else null
-        }.getOrNull() ?: runCatching {
-            MediaMetadataRetriever().let { retriever ->
+    suspend fun load(context: Context, video: VideoItem): ImageBitmap? = decoders.withPermit {
+        coroutineContext.ensureActive()
+        peek(video)?.let { return@withPermit it }
+        val bitmap: Bitmap? = try {
+            val thumbnail = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+                try {
+                    context.contentResolver.loadThumbnail(video.uri, Size(320, 200), null)
+                } catch (error: Exception) { null }
+            } else null
+            thumbnail ?: MediaMetadataRetriever().let { retriever ->
                 try {
                     retriever.setDataSource(context, video.uri)
-                    retriever.getFrameAtTime(1_000_000, MediaMetadataRetriever.OPTION_CLOSEST_SYNC)
+                    // API 27+ : décoder directement à petite taille, même en 4K.
+                    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O_MR1) {
+                        retriever.getScaledFrameAtTime(
+                            0, MediaMetadataRetriever.OPTION_CLOSEST_SYNC, 320, 200,
+                        )
+                    } else null // API 26 : icône de remplacement, sans décodage plein format.
                 } finally {
                     retriever.release()
                 }
             }
-        }.getOrNull()
-        return bitmap?.asImageBitmap()?.also { cache.put(video.id, it) }
+        } catch (cancelled: CancellationException) {
+            throw cancelled
+        } catch (error: Exception) { null }
+        coroutineContext.ensureActive()
+        bitmap?.also { cache.put(key(video), it) }?.asImageBitmap()
     }
 }
 
 @Composable
 private fun VideoThumbnail(video: VideoItem, modifier: Modifier = Modifier) {
     val context = LocalContext.current
-    val bitmap by produceState(initialValue = VideoThumbCache.peek(video.id), key1 = video.id) {
+    val bitmap by produceState(initialValue = VideoThumbCache.peek(video), key1 = video) {
+        value = VideoThumbCache.peek(video)
         if (value == null) value = withContext(Dispatchers.IO) { VideoThumbCache.load(context, video) }
     }
     Box(modifier.background(Roxi.SurfaceHigh), contentAlignment = Alignment.Center) {

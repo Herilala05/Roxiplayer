@@ -110,13 +110,11 @@ import androidx.activity.ComponentActivity
 import androidx.activity.SystemBarStyle
 import androidx.activity.enableEdgeToEdge
 import androidx.compose.animation.core.Animatable
-import androidx.compose.animation.core.spring
 import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.toArgb
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.unit.sp
-import kotlinx.coroutines.delay
 import kotlin.math.roundToInt
 
 private val audioPermission =
@@ -135,6 +133,8 @@ fun RoxiApp() {
 
     val permissions = remember {
         when {
+            Build.VERSION.SDK_INT >= 34 -> arrayOf(audioPermission, Manifest.permission.READ_MEDIA_VIDEO,
+                Manifest.permission.READ_MEDIA_VISUAL_USER_SELECTED, Manifest.permission.POST_NOTIFICATIONS)
             Build.VERSION.SDK_INT >= 33 -> arrayOf(audioPermission, Manifest.permission.READ_MEDIA_VIDEO, Manifest.permission.POST_NOTIFICATIONS)
             Build.VERSION.SDK_INT <= 28 -> arrayOf(audioPermission, Manifest.permission.WRITE_EXTERNAL_STORAGE)
             else -> arrayOf(audioPermission)
@@ -195,14 +195,13 @@ fun RoxiApp() {
 /** Animation d'entrée courte et stable : le titre reste toujours sur une seule ligne. */
 @Composable
 private fun SplashOverlay(onFinished: () -> Unit) {
-    val title = remember { Animatable(0f) }
+    val title = remember { Animatable(1f) }
     val image = remember { Animatable(0f) }
     val overlay = remember { Animatable(1f) }
     LaunchedEffect(Unit) {
-        title.animateTo(1f, tween(260))
-        image.animateTo(1f, spring(dampingRatio = 0.7f, stiffness = 360f))
-        delay(500)
-        overlay.animateTo(0f, tween(220))
+        // Titre visible dès la première image ; aucune attente artificielle.
+        image.animateTo(1f, tween(280))
+        overlay.animateTo(0f, tween(160))
         onFinished()
     }
     Column(
@@ -263,6 +262,10 @@ private fun AnimatedContentTransitionScope<NavBackStackEntry>.isTabSwitch(): Boo
 
 /** Changement d'onglet : garde l'état de chaque onglet, pas d'empilement. */
 fun NavController.navigateTab(route: String, restore: Boolean = true) {
+    // Ignore les doubles appuis et les changements pendant une transition.
+    val entry = currentBackStackEntry ?: return
+    if (entry.destination.route == route) return
+    if (entry.lifecycle.currentState != Lifecycle.State.RESUMED) return
     navigate(route) {
         popUpTo(graph.findStartDestination().id) { saveState = true }
         launchSingleTop = true
@@ -452,3 +455,4 @@ private fun PermissionScreen(asked: Boolean, onRequest: () -> Unit) {
         }
     }
 }
+

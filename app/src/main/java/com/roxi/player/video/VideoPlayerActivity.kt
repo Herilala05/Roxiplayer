@@ -359,7 +359,7 @@ class VideoPlayerActivity : ComponentActivity() {
                 settingsDialog = AlertDialog.Builder(this@VideoPlayerActivity)
                     .setTitle("Vitesse de lecture")
                     .setSingleChoiceItems(speeds.map { "$it×" }.toTypedArray(),
-                        speeds.indexOf(p.playbackParameters.speed)) { dialog, which ->
+                        speeds.indexOfFirst { it == p.playbackParameters.speed }) { dialog, which ->
                         p.setPlaybackSpeed(speeds[which])
                         preferences.edit().putFloat("speed", speeds[which]).apply()
                         dialog.dismiss()
